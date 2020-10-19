@@ -26,6 +26,31 @@ import numpy as np
 import pandas as pd
 import pickle
 import json
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+
+def find_true_distance(Pick_up_lat, Pick_up_long, Destination_lat, Destination_long):
+    from math import sin, cos, sqrt, atan2, radians
+
+    # approximate radius of earth in km
+    R = 6373.0
+
+    Pick_up_lat = Pick_up_lat.apply(lambda x: radians(x))
+    Pick_up_long = Pick_up_long.apply(lambda x: radians(x))
+    Destination_lat = Destination_lat.apply(lambda x: radians(x))
+    Destination_long = Destination_long.apply(lambda x: radians(x))
+
+    dlon = Destination_long - Pick_up_long
+    dlat = Destination_lat - Pick_up_lat 
+
+    a = dlat.apply(lambda x: sin( x/ 2)**2) + Pick_up_lat.apply(lambda x: cos(x)) * Destination_lat.apply(lambda x: cos(x)) * dlon.apply(lambda x : sin(x / 2)**2)
+    c = 2 * a.apply(lambda x: atan2(sqrt(x), sqrt(1 - x)))
+
+    return round(R * c)
+
+def convert_to_24hrs(column):
+    column = pd.to_datetime(column, format='%I:%M:%S %p').dt.strftime("%H:%M:%S")
+    return column
 
 def _preprocess_data(data):
     """Private helper function to preprocess data for model prediction.
@@ -48,7 +73,7 @@ def _preprocess_data(data):
     # Convert the json string to a python dictionary object
     feature_vector_dict = json.loads(data)
     # Load the dictionary as a Pandas DataFrame.
-    feature_vector_df = pd.DataFrame.from_dict([feature_vector_dict])
+    train_set = pd.DataFrame.from_dict([feature_vector_dict])
 
     # ---------------------------------------------------------------
     # NOTE: You will need to swap the lines below for your own data
@@ -59,11 +84,54 @@ def _preprocess_data(data):
     # ---------------------------------------------------------------
 
     # ----------- Replace this code with your own preprocessing steps --------
-    predict_vector = feature_vector_df[['Pickup Lat','Pickup Long',
-                                        'Destination Lat','Destination Long']]
+    train_set.drop(['Arrival at Destination - Day of Month', 'Arrival at Destination - Weekday (Mo = 1)', 'Arrival at Destination - Time'], axis=1, inplace=True)
+
+    train_set = pd.merge(train_set, rider_info, on='Rider Id', how= 'left')
+
+    train_set['Temperature'] = train_set['Temperature'].fillna(train_set['Temperature'].mean())
+    train_set['Precipitation in millimeters'] = train_set['Precipitation in millimeters'].fillna(0)
+
+    train_set.drop(['User Id', 'Vehicle Type','Order No', 'Rider Id' ],axis=1, inplace=True)
+
+    train_set['Confirmation - Time'] = pd.to_timedelta(convert_to_24hrs(train_set['Confirmation - Time'] ))
+    train_set['Placement - Time'] = pd.to_timedelta(convert_to_24hrs(train_set['Placement - Time'] ))
+    train_set['Arrival at Pickup - Time'] =  pd.to_timedelta(convert_to_24hrs(train_set['Arrival at Pickup - Time'] ))
+    train_set['Pickup - Time'] =  pd.to_timedelta(convert_to_24hrs(train_set['Pickup - Time'] ))
+
+    train_set['Time from Confirmation to placement'] = train_set['Confirmation - Time']- train_set['Placement - Time']
+    train_set['Waiting Time'] = train_set['Pickup - Time']- train_set['Arrival at Pickup - Time']
+
+    train_set['Time from Confirmation to placement'] = train_set['Time from Confirmation to placement'] / np.timedelta64(1, 's')
+    train_set['Waiting Time'] = train_set['Waiting Time'] / np.timedelta64(1, 's')
+
+    train_set.drop(['Confirmation - Time','Placement - Time' ,'Pickup - Time','Arrival at Pickup - Time'],
+             axis=1, inplace=True)
+
+    column_titles = [col for col in train_set.columns if col!= 'Time from Pickup to Arrival'] + ['Time from Pickup to Arrival']
+    train_set= train_set.reindex(columns=column_titles)
+
+    train_set['True Distance'] = find_true_distance(train_set['Pickup Lat'], train_set['Pickup Long'], train_set['Destination Lat'], train_set['Destination Long'])
+
+    train_set.drop(['Pickup Lat', 'Pickup Long', 'Destination Lat', 'Destination Long'],
+             axis=1, inplace=True)
+
+    column_titles = [col for col in train_set.columns if col!= 'Time from Pickup to Arrival'] + ['Time from Pickup to Arrival']
+    train_set= train_set.reindex(columns=column_titles)         
+
+    #y_train = train_set.iloc[:,-1].values
+    #y_train.reshape(len(y_train),1)
+
+    X_train = train_set.iloc[:,:-1].values
+
+  
+    ct = ColumnTransformer(transformers = [('encoder', OneHotEncoder(drop='first'), [0,1])], remainder = 'passthrough')
+    X_train = np.array(ct.fit_transform(X_train))
+
+    
+
     # ------------------------------------------------------------------------
 
-    return predict_vector
+    return X_train
 
 def load_model(path_to_model:str):
     """Adapter function to load our pretrained model into memory.
