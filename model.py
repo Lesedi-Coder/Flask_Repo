@@ -114,6 +114,9 @@ def _preprocess_data(data):
     column_titles = [col for col in train_set.columns if col!= 'Time from Pickup to Arrival'] + ['Time from Pickup to Arrival']
     train_set= train_set.reindex(columns=column_titles)
 
+    train_set.drop([ 'Placement - Day of Month', 'Placement - Weekday (Mo = 1)', 'Arrival at Pickup - Day of Month', 'Arrival at Pickup - Weekday (Mo = 1)', 'Pickup - Day of Month', 'Pickup - Weekday (Mo = 1)', 'No_of_Ratings', 'Age'],
+             axis=1, inplace=True)
+
     train_set['True Distance'] = find_true_distance(train_set['Pickup Lat'], train_set['Pickup Long'], train_set['Destination Lat'], train_set['Destination Long'])
 
     train_set.drop(['Pickup Lat', 'Pickup Long', 'Destination Lat', 'Destination Long'],
