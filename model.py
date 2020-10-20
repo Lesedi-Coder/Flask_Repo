@@ -28,6 +28,8 @@ import pickle
 import json
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import StandardScaler
+riders = pd.read_csv('utils/data/riders.csv')
 
 def find_true_distance(Pick_up_lat, Pick_up_long, Destination_lat, Destination_long):
     from math import sin, cos, sqrt, atan2, radians
@@ -86,8 +88,10 @@ def _preprocess_data(data):
     # ----------- Replace this code with your own preprocessing steps --------
     train_set.drop(['Arrival at Destination - Day of Month', 'Arrival at Destination - Weekday (Mo = 1)', 'Arrival at Destination - Time'], axis=1, inplace=True)
 
-    train_set = pd.merge(train_set, rider_info, on='Rider Id', how= 'left')
-
+    train_set = pd.merge(train_set, riders, on='Rider Id', how= 'left')
+    column_titles = [col for col in train_set.columns if col!= 'Time from Pickup to Arrival'] + ['Time from Pickup to Arrival']
+    train_set= train_set.reindex(columns=column_titles)
+    
     train_set['Temperature'] = train_set['Temperature'].fillna(train_set['Temperature'].mean())
     train_set['Precipitation in millimeters'] = train_set['Precipitation in millimeters'].fillna(0)
 
@@ -116,18 +120,18 @@ def _preprocess_data(data):
              axis=1, inplace=True)
 
     column_titles = [col for col in train_set.columns if col!= 'Time from Pickup to Arrival'] + ['Time from Pickup to Arrival']
-    train_set= train_set.reindex(columns=column_titles)         
+    train_set= train_set.reindex(columns=column_titles)        
 
     #y_train = train_set.iloc[:,-1].values
     #y_train.reshape(len(y_train),1)
 
     X_train = train_set.iloc[:,:-1].values
-
   
     ct = ColumnTransformer(transformers = [('encoder', OneHotEncoder(drop='first'), [0,1])], remainder = 'passthrough')
     X_train = np.array(ct.fit_transform(X_train))
 
-    
+    sc_X = StandardScaler()
+    X_train = sc_X.fit_transform(X_train)
 
     # ------------------------------------------------------------------------
 
